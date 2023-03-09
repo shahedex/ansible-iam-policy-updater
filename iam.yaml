@@ -1,0 +1,88 @@
+---
+- hosts: localhost
+  vars_files:
+    - vars.yaml
+  tasks:
+    - name: get policy list
+      command: aws iam list-attached-user-policies --user-name {{ user_name }}
+      register: POLICY_LIST
+    - name: Set policy list vals
+      set_fact: policylist="{{ POLICY_LIST.stdout }}"
+    - name: show policy list
+      debug:
+        msg: "{{ policylist }}"
+
+    - name: get our policy
+      debug:
+        msg: "{{ item }}"
+      loop: "{{ policylist | community.general.json_query('AttachedPolicies[*]') }}"
+      when: item.PolicyName  == policy_name
+      register: policy_exists
+
+    - name: Set policy arn
+      set_fact: policyarn="{{ policy_exists['results'][0]['item']['PolicyArn'] }}"
+    - name: print to see value of policy_exists
+      debug:
+        var: policyarn
+
+    - name: get policy document
+      command: aws iam get-policy --policy-arn {{ policyarn }}
+      register: POLICY_DOCUMENT
+    
+    - name: show policy data
+      debug:
+        msg: "{{ POLICY_DOCUMENT.stdout }}"
+    - name: Set policy vals
+      set_fact: user_policy="{{ POLICY_DOCUMENT.stdout }}"
+    - name: Set policy only
+      set_fact: policy_only="{{ user_policy.Policy }}"
+    - name: Get policy version
+      set_fact: policy_version="{{ policy_only['DefaultVersionId'] }}"
+    - name: show policy document
+      debug:
+        msg: "{{ policy_version }}"
+
+    - name: get policy final document
+      command: aws iam get-policy-version --policy-arn {{ policyarn }} --version-id {{ policy_version }}
+      register: POLICY_DOCUMENT
+    - name: show policy data
+      debug:
+        msg: "{{ POLICY_DOCUMENT.stdout }}"
+    - name: Set policy vals
+      set_fact: user_policy="{{ POLICY_DOCUMENT.stdout }}"
+    - name: Set policy only
+      set_fact: policy_only="{{ user_policy.PolicyVersion.Document }}"
+    - name: show  policy only
+      debug:
+        msg: "{{ policy_only }}"
+
+    - name: Create temp-policy.json file
+      copy:
+        content: "{{ policy_only }}"
+        dest: temp-policy.json
+
+    - name: update policy for "s3:ListBucket"
+      include_tasks: update-policy.yaml
+      loop: "{{ policy_only | community.general.json_query('Statement[*]') }}"
+      when: loop_items.Action  == "s3:ListBucket"
+      loop_control:
+        index_var: index
+        loop_var: loop_items
+
+    - name: update policy for "s3:*"
+      include_tasks: update-policy.yaml
+      loop: "{{ policy_only | community.general.json_query('Statement[*]') }}"
+      when: loop_items.Action  == "s3:*"
+      loop_control:
+        index_var: index
+        loop_var: loop_items
+
+    - name: update iam policy
+      command: aws iam create-policy-version --policy-arn {{ policyarn }}  --policy-document file://temp-policy.json --set-as-default
+
+    - name: cleaning up temp files
+      file:
+        path: "{{ item }}"
+        state: absent
+      with_items:
+        - temp-policy.json

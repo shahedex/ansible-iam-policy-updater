@@ -1,0 +1,32 @@
+- name: update policy json file inside inside
+  command : jq '.Statement[{{ index| int }}].Resource += ["{{ new_arn | trim }}"]' temp-policy.json
+  when: loop_items.Action  == "s3:ListBucket"
+  register: policy_updated_list_bucket
+
+- name: update policy json file inside
+  command : jq '.Statement[{{ index| int }}].Resource += ["{{ new_arn | trim }}/*"]' temp-policy.json
+  when: loop_items.Action  == "s3:*"
+  register: policy_updated_all_bucket
+
+- name: show updated policy principle
+  debug:
+    msg: "{{ policy_updated_list_bucket.stdout }}"
+  when: loop_items.Action  == "s3:ListBucket"
+    
+- name: set updated policy to var
+  set_fact: added_policy_arn="{{ policy_updated_list_bucket.stdout }}"
+  when: loop_items.Action  == "s3:ListBucket"
+
+- name: show updated policy principle
+  debug:
+    msg: "{{ policy_updated_all_bucket.stdout }}"
+  when: loop_items.Action  == "s3:*"
+    
+- name: set updated policy to var
+  set_fact: added_policy_arn="{{ policy_updated_all_bucket.stdout }}"
+  when: loop_items.Action  == "s3:*"
+
+- name: Overwrite temp-policy.json file
+  copy:
+    content: "{{ added_policy_arn }}"
+    dest: temp-policy.json

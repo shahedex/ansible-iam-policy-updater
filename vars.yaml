@@ -1,0 +1,3 @@
+user_name: bucket-user
+policy_name: user-bucket-policy
+new_arn: arn:aws:s3:::test-bucket6
